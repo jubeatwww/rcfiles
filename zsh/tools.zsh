@@ -1,5 +1,5 @@
-# Language / tool version managers. Each block is a no-op if the tool
-# is not installed on this machine.
+# Language / tool version managers and tool-specific shell hooks.
+# Each block is a no-op if the tool is not installed on this machine.
 
 # nvm
 export NVM_DIR="$HOME/.nvm"
@@ -17,8 +17,19 @@ case ":$PATH:" in
   *) [[ -d "$PNPM_HOME" ]] && export PATH="$PNPM_HOME:$PATH" ;;
 esac
 
-# rust (cargo env is also sourced in .zshenv for non-interactive shells)
-[[ -f "$HOME/.cargo/env" ]] && source "$HOME/.cargo/env"
+# rust — cargo env is sourced in .zshenv so it also applies to non-interactive shells.
+
+# herdr — completion is generated from the binary, cached, and regenerated
+# whenever the binary is newer than the cache (e.g. after `herdr update`).
+if (( $+commands[herdr] && $+functions[compdef] )); then
+  _rc_comp="${XDG_CACHE_HOME:-$HOME/.cache}/rcfiles/completions"
+  if [[ ! -f "$_rc_comp/_herdr" || "$commands[herdr]" -nt "$_rc_comp/_herdr" ]]; then
+    mkdir -p "$_rc_comp" && herdr completion zsh >| "$_rc_comp/_herdr"
+  fi
+  fpath+=("$_rc_comp")
+  autoload -Uz _herdr && compdef _herdr herdr
+  unset _rc_comp
+fi
 
 # sdkman — must be sourced last
 export SDKMAN_DIR="$HOME/.sdkman"

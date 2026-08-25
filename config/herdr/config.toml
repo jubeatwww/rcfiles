@@ -1,0 +1,57 @@
+# herdr configuration
+# 參考 ~/.tmux.conf 對齊鍵位。
+# 層級對應：herdr pane = tmux pane、herdr tab = tmux window、herdr space = tmux session
+#   pane  → Ctrl + h/j/k/l、Alt+Tab
+#   tab   → Alt + ←/→、Alt + 1..9
+#   space → Alt + ↑/↓、prefix+w 選單
+
+[keys]
+# tmux: set -g prefix C-a
+prefix = "ctrl+a"
+
+# ── 分割 ──
+# tmux: bind - split-window -v  → 上下分割
+split_horizontal = "prefix+minus"
+# tmux: bind | split-window -h  → 左右分割
+split_vertical = "prefix+|"
+
+# ── pane（= tmux pane）──
+# tmux: bind -n C-h/j/k/l select-pane
+focus_pane_left  = "ctrl+h"
+focus_pane_down  = "ctrl+j"
+focus_pane_up    = "ctrl+k"
+focus_pane_right = "ctrl+l"
+# tmux: bind -n M-Tab / M-BTab select-pane -t :.+ / :.-
+cycle_pane_next     = "alt+tab"
+cycle_pane_previous = "alt+shift+tab"
+
+# ── tab（= tmux window）──
+# tmux: bind c new-window
+new_tab = "prefix+c"
+# tmux: bind -n M-Left / M-Right previous-window / next-window
+previous_tab = "alt+left"
+next_tab     = "alt+right"
+# tmux: bind -n M-1..5 select-window -t N
+switch_tab = "alt+1..9"
+
+# ── space（≈ tmux session，tmux 沒有直接對應）──
+# sidebar 裡 space 是垂直排列，所以用 Alt+↑/↓ 上下切換
+previous_workspace = "alt+up"
+next_workspace     = "alt+down"
+# tmux: prefix s（session 選單）≈ herdr workspace picker（herdr 預設值）
+workspace_picker = "prefix+w"
+
+# ── 交換 pane（tmux: prefix { / }，herdr 是方向式，用大寫 HJKL 對應）──
+swap_pane_left  = "prefix+shift+h"
+swap_pane_down  = "prefix+shift+j"
+swap_pane_up    = "prefix+shift+k"
+swap_pane_right = "prefix+shift+l"
+
+[ui]
+agent_panel_sort = "priority"
+
+status_indicators = "symbols"
+show_agent_labels_on_pane_borders = true
+[theme]
+name = "one-dark"
+auto_switch = false
