@@ -16,14 +16,15 @@ OS="$(uname -s)"
 
 # "<path in repo>  <path under $HOME>"
 LINKS=(
-  ".zshenv                   .zshenv"
-  ".zprofile                 .zprofile"
-  ".zshrc                    .zshrc"
-  ".p10k.zsh                 .p10k.zsh"
-  ".tmux.conf                .tmux.conf"
-  ".vimrc                    .vimrc"
-  ".screenrc                 .screenrc"
-  "config/herdr/config.toml  .config/herdr/config.toml"
+  ".zshenv                            .zshenv"
+  ".zprofile                          .zprofile"
+  ".zshrc                             .zshrc"
+  ".p10k.zsh                          .p10k.zsh"
+  ".tmux.conf                         .tmux.conf"
+  ".vimrc                             .vimrc"
+  ".screenrc                          .screenrc"
+  "config/herdr/config.toml           .config/herdr/config.toml"
+  "config/ccstatusline/settings.json  .config/ccstatusline/settings.json"
 )
 
 say() { printf '  %-8s %s\n' "$1" "$2"; }

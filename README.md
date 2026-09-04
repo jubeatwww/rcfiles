@@ -48,6 +48,7 @@ cd ~/rcfiles
 | `.p10k.zsh` | `~/.p10k.zsh` | `p10k configure` 產生的 prompt 設定 |
 | `.tmux.conf` | `~/.tmux.conf` | prefix `C-a`、`-` / `\|` 分割、`C-hjkl` 換 pane |
 | `config/herdr/config.toml` | `~/.config/herdr/config.toml` | [herdr](https://herdr.dev) 設定，鍵位對齊 `.tmux.conf` |
+| `config/ccstatusline/settings.json` | `~/.config/ccstatusline/settings.json` | [ccstatusline](https://github.com/sirmalloc/ccstatusline) 設定，Claude Code 的 status line |
 | `.vimrc` | `~/.vimrc` | 不依賴 plugin 的 vim 設定 |
 | `.screenrc` | `~/.screenrc` | screen 基本設定（沒 tmux 的機器用） |
 
