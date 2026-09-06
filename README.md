@@ -51,6 +51,8 @@ cd ~/rcfiles
 | `config/ccstatusline/settings.json` | `~/.config/ccstatusline/settings.json` | [ccstatusline](https://github.com/sirmalloc/ccstatusline) 設定，Claude Code 的 status line |
 | `.vimrc` | `~/.vimrc` | 不依賴 plugin 的 vim 設定 |
 | `.screenrc` | `~/.screenrc` | screen 基本設定（沒 tmux 的機器用） |
+| `ai/` | `~/.claude/skills/personal` | Claude Code plugin `personal`，個人用 AI 工具，skill 以 `personal:<name>` 出現。說明見 [`ai/README.md`](ai/README.md) |
+| `ai/skills/shar0-blog` | `~/.codex/skills/shar0-blog` | 同一個 skill 給 Codex 用，Codex 沒有 plugin，逐個 skill 連 |
 
 ### herdr
 

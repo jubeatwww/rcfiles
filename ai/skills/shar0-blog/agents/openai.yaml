@@ -1,0 +1,4 @@
+interface:
+  display_name: "shar0.dev 技術文章"
+  short_description: "從讀書筆記產大綱與文章，或重寫舊文。收斂主線、去 AI 味、套三類骨架"
+  default_prompt: "用 $shar0-blog 處理這份素材: 舊文就重寫，筆記就先給大綱。"
