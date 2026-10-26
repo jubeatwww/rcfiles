@@ -1,7 +1,7 @@
 {
   "name": "personal",
-  "description": "Justin 個人用的 AI 工具。目前: shar0-blog (shar0.dev 技術文章的寫作與重寫標準)",
-  "version": "1.0.0",
+  "description": "Justin 個人用的 AI 工具。目前: shar0-blog (shar0.dev 技術文章的寫作與重寫標準)、rust-ddd (個人 Rust DDD 實作標準, 手動呼叫)",
+  "version": "1.1.0",
   "author": {
     "name": "Justin Lin"
   }

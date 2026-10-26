@@ -9,6 +9,7 @@
 | skill | 用途 | Claude | Codex |
 | --- | --- | --- | --- |
 | `skills/shar0-blog` | shar0.dev 技術文章的寫作與重寫: 舊文重寫、筆記產文，依 `references/editorial-standard.md` 收斂主線與去 AI 味 | `personal:shar0-blog` | `$shar0-blog` |
+| `skills/rust-ddd` | 個人 Rust DDD 實作標準: context crate、kernel、published + ACL、命名、syn 架構測試。只能手動呼叫，repo 要在 `CLAUDE.md` 宣告採用與變體 (standard / small) | `personal:rust-ddd` | 未連結 |
 
 ## 加新的 skill
 
