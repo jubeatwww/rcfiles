@@ -139,6 +139,15 @@
         "id": "070f447a-9361-499e-af6d-3bb507b87d61",
         "type": "worktree-branch"
       }
+    ],
+    [
+      {
+        "id": "db3ca24a-eff0-4e1f-8b36-b74e81c2b6c9",
+        "type": "current-working-dir",
+        "metadata": {
+          "abbreviateHome": "true"
+        }
+      }
     ]
   ],
   "flexMode": "full",

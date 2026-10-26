@@ -1,3 +1,4 @@
+onboarding = false
 # herdr configuration
 # 參考 ~/.tmux.conf 對齊鍵位。
 # 層級對應：herdr pane = tmux pane、herdr tab = tmux window、herdr space = tmux session
@@ -47,11 +48,55 @@ swap_pane_down  = "prefix+shift+j"
 swap_pane_up    = "prefix+shift+k"
 swap_pane_right = "prefix+shift+l"
 
+# ── herdr-nvim（ChmaraX/herdr-nvim）──
+# README 建議 prefix+e / prefix+o，但會撞到 herdr 預設的 edit_scrollback / open_notification_target，
+# 改用 prefix+v（split_vertical 已改成 prefix+|，v 空出來）與 prefix+f
+[[keys.command]]
+key = "prefix+v"
+type = "plugin_action"
+command = "chmarax.herdr-nvim.toggle"
+description = "nvim sidebar"
+
+[[keys.command]]
+key = "prefix+f"
+type = "plugin_action"
+command = "chmarax.herdr-nvim.pick-file"
+description = "open file from agent output"
+
 [ui]
 agent_panel_sort = "priority"
 
 status_indicators = "symbols"
 show_agent_labels_on_pane_borders = true
+# 固定寬度，避免跟著 workspace 名稱伸縮；agent 任務名稱也比較不會被截斷
+sidebar_min_width = 36
+sidebar_max_width = 36
+
+# ── 側邊欄：space ──
+# 一個 workspace 底下常開不同 repo 的 pane，branch / git_status 只反映其中一個，拿掉
+[ui.sidebar.spaces]
+rows = [["state_icon", "workspace"]]
+
+# ── 側邊欄：agent ──
+# 第一行看狀態、第二行看在做什麼 (Claude Code 的 session 名稱)、第三行看在哪 (淡色)
+# 沒有值的欄位與整行會自動隱藏
+# agent 名稱配色參考 Jian-Min-Huang/.nvim 的 herdr 設定；用 rules 比對顯示名稱，不必為每個 agent 複製一份 rows_by_agent
+[ui.sidebar.agents]
+rows = [
+  ["state_icon", { token = "agent", rules = [
+    { starts_with = "claude", ignore_case = true, fg = "#d97757" },
+    { starts_with = "codex", ignore_case = true, fg = "#4b56f5" },
+    { equals = "pi", ignore_case = true, fg = "#5e93b6" },
+    { equals = "omp", ignore_case = true, fg = "#c678dd" },
+  ] }, "state_text"],
+  ["terminal_title_stripped"],
+  [{ token = "workspace", dim = true }, { token = "tab", dim = true }],
+]
+
 [theme]
 name = "one-dark"
 auto_switch = false
+
+[experimental]
+# 進入 prefix 模式時暫時切到 ASCII 輸入法，讓中文輸入法開著時 prefix 指令也能生效，離開 prefix 後還原
+switch_ascii_input_source_in_prefix = true

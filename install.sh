@@ -25,6 +25,7 @@ LINKS=(
   ".screenrc                          .screenrc"
   "config/herdr/config.toml           .config/herdr/config.toml"
   "config/ccstatusline/settings.json  .config/ccstatusline/settings.json"
+  "config/nvim                        .config/nvim"
   # AI tooling: the whole dir is a Claude Code plugin; Codex only sees single skills.
   "ai                                 .claude/skills/personal"
   "ai/skills/shar0-blog               .codex/skills/shar0-blog"
