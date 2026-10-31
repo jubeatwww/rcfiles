@@ -5,7 +5,8 @@
 #   1. install zsh, bash, git, curl, tmux, vim with the system package manager
 #      (Homebrew is installed first on macOS if missing)
 #   2. clone this repo to ~/rcfiles unless it is already there
-#   3. ./install.sh --deps   -> oh-my-zsh, powerlevel10k, plugins, font, herdr, symlinks
+#   3. ./install.sh --deps   -> oh-my-zsh, powerlevel10k, plugins, font, herdr,
+#                               nvm + node, ccstatusline, symlinks
 #   4. make zsh the login shell
 #
 # POSIX sh on purpose: it must run before bash exists. One-liner:

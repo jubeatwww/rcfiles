@@ -4,7 +4,7 @@
 #
 #   ./install.sh          link only (existing files are backed up first)
 #   ./install.sh --deps   also install oh-my-zsh, powerlevel10k, zsh plugins,
-#                         the MesloLGS NF font and herdr
+#                         the MesloLGS NF font, herdr, nvm + node and ccstatusline
 #
 # On a blank machine (no zsh / git / tmux yet) run ./bootstrap.sh instead;
 # it installs the packages and then calls this script with --deps.
@@ -151,10 +151,62 @@ install_herdr() {
   curl -fsSL https://herdr.dev/install.sh | HERDR_INSTALL_DIR="$HOME/.local/bin" sh >/dev/null
 }
 
+NVM_VERSION="v0.40.8"
+
+# nvm + a default node. The installer is told not to touch any profile:
+# zsh/tools.zsh already loads nvm, and ~/.zshrc is a symlink into this repo.
+install_node() {
+  case "$OS" in
+    Linux|Darwin) ;;
+    *) say skip "nvm (unsupported on $OS)"; return ;;
+  esac
+
+  export NVM_DIR="$HOME/.nvm"
+  if [[ -s "$NVM_DIR/nvm.sh" ]]; then
+    say ok nvm
+  else
+    say install "nvm $NVM_VERSION"
+    curl -fsSL "https://raw.githubusercontent.com/nvm-sh/nvm/$NVM_VERSION/install.sh" \
+      | PROFILE=/dev/null bash >/dev/null
+  fi
+
+  # nvm.sh is not safe under `set -eu`.
+  set +eu
+  source "$NVM_DIR/nvm.sh"
+  if [[ "$(nvm version default)" == N/A ]]; then
+    say install "node (lts)"
+    nvm install --lts >/dev/null && nvm alias default 'lts/*' >/dev/null
+  else
+    say ok "node $(nvm version default)"
+  fi
+  nvm use default >/dev/null
+  set -eu
+
+  command -v npm >/dev/null 2>&1 || { echo "node install failed" >&2; exit 1; }
+}
+
+# ccstatusline renders the Claude Code status line. Pinned to the version
+# recorded in its settings file. Global npm packages live per node version
+# under nvm, so this also restores it after moving to a new default node.
+install_ccstatusline() {
+  local want have
+  want="$(sed -n 's/.*"installedVersion": *"\([^"]*\)".*/\1/p' "$RCFILES/config/ccstatusline/settings.json")"
+  have="$(npm ls -g --depth=0 ccstatusline 2>/dev/null | sed -n 's/.*ccstatusline@//p')"
+
+  if [[ -n "$have" && ( -z "$want" || "$have" == "$want" ) ]]; then
+    say ok "ccstatusline $have"
+    return
+  fi
+  say install "ccstatusline${want:+ $want}"
+  npm install -g --silent "ccstatusline${want:+@$want}" >/dev/null
+}
+
 install_deps() {
   install_zsh_deps
   install_font
   install_herdr
+  install_node
+  install_ccstatusline
 }
 
 # ---------------------------------------------------------------------------
