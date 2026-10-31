@@ -1,5 +1,5 @@
 {
-  "version": 3,
+  "version": 4,
   "lines": [
     [
       {
@@ -71,14 +71,14 @@
         "id": "4b04a6b4-a6e6-4c50-8981-723397ec5402",
         "type": "git-branch",
         "metadata": {
-          "hideNoGit": "true"
+          "hide": "no-git"
         }
       },
       {
         "id": "70b2b76d-579f-4bfb-ad6e-e9b8ca81cd2e",
         "type": "git-status",
         "metadata": {
-          "hideNoGit": "true"
+          "hide": "no-git"
         }
       },
       {
@@ -90,7 +90,7 @@
         "id": "9090a0f5-d3f6-41b6-9238-2af6d31fa88b",
         "type": "git-ahead-behind",
         "metadata": {
-          "hideNoGit": "true"
+          "hide": "no-git,no-upstream,zero"
         }
       },
       {
@@ -102,7 +102,7 @@
         "id": "dc3084aa-3928-4c1b-9aaf-5e215b4ecf94",
         "type": "git-changes",
         "metadata": {
-          "hideNoGit": "true"
+          "hide": "no-git"
         }
       },
       {
@@ -114,9 +114,7 @@
         "type": "git-review",
         "rawValue": false,
         "metadata": {
-          "hideNoGit": "true",
-          "hideStatus": "true",
-          "hideTitle": "true"
+          "hide": "no-git,no-data,status,title"
         }
       },
       {
@@ -127,7 +125,7 @@
         "id": "e54c2d99-1067-4d8a-9e01-f5a9c204c74f",
         "type": "git-worktree",
         "metadata": {
-          "hideNoGit": "true"
+          "hide": "no-git"
         }
       },
       {
@@ -157,6 +155,8 @@
   "inheritSeparatorColors": false,
   "globalBold": true,
   "gitCacheTtlSeconds": 5,
+  "terminalWidthCacheTtlSeconds": 5,
+  "customCommandCacheTtlSeconds": 0,
   "minimalistMode": false,
   "powerline": {
     "enabled": false,
@@ -173,6 +173,6 @@
   },
   "installation": {
     "method": "pinned",
-    "installedVersion": "2.2.27"
+    "installedVersion": "2.2.33"
   }
 }
