@@ -1,0 +1,11 @@
+{
+  "zoom": 1.3,
+  "sounds": {
+    "enabled": true
+  },
+  "font_ligatures": false,
+  "ui_font": "Comic Sans MS",
+  "minimum_contrast": 1.0,
+  "appearance": "dark",
+  "theme": "atom-one-dark"
+}

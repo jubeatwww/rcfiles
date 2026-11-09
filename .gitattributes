@@ -1,0 +1,2 @@
+# herdr-app writes CRLF on Windows; --pull-herdr-app copies its files in as they are.
+config/herdr-app/** text eol=lf

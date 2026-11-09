@@ -1,2 +1,3 @@
 zsh/local.zsh
 .zcompdump*
+tools/*/target/

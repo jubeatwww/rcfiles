@@ -1,0 +1,13 @@
+[package]
+name = "agent-status"
+version = "0.2.0"
+edition = "2021"
+description = "Coding agent status for herdr: publishes a session's model, context and plan limits as a terminal label"
+publish = false
+
+[dependencies]
+serde_json = "1"
+
+[profile.release]
+strip = true
+lto = true
