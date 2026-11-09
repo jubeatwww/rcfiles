@@ -12,7 +12,7 @@
 
 import { View, div } from "gpui-kit";
 import { h_flex } from "gpui-base";
-import { terminals, panes, focused, theme } from "herdr";
+import { terminals, panes, spaces, focused, theme } from "herdr";
 
 const LABEL = "agent.status";
 const NAMES = { claude: "Claude", codex: "Codex", pi: "pi" };
@@ -32,7 +32,7 @@ function status(t) {
   return s?.agent && runs(t, s.agent) ? s : null;
 }
 
-// Sessions of one agent report the same account, each as of its own last update: an
+// Sessions of one agent on one machine report the same account, each as of its own last update: an
 // idle one's numbers are old. Per limit, the newest is the latest window (reset), and
 // within a window use only grows.
 function newestLimits(all) {
@@ -123,14 +123,19 @@ export default class AgentUsage extends View {
     const all = terminals();
     const byAddress = new Map(all.map((x) => [x.address, x]));
 
+    // Limits are an account's, and another machine often signs in with another
+    // account: only this tab's machine's sessions count ("home/t6" is on home).
+    const f = focused();
+    const here = spaces().find((s) => (s.tabs ?? []).some((x) => x.id === f?.tab))?.machine ?? null;
+    const machineOf = (address) => (address.includes("/") ? address.split("/")[0] : null);
     const limits = {};
     for (const agent of KNOWN) {
-      const reported = all.map(status).filter((s) => s?.agent === agent && s.limits).map((s) => s.limits);
+      const reported = all.filter((x) => machineOf(x.address) === here).map(status)
+        .filter((s) => s?.agent === agent && s.limits).map((s) => s.limits);
       if (reported.length) limits[agent] = newestLimits(reported);
     }
 
     // The shown tab's agent terminals, the focused one first.
-    const f = focused();
     const inTab = (f?.tab ? panes().filter((p) => p.tab === f.tab && p.terminal) : [])
       .map((p) => byAddress.get(p.terminal))
       .filter((x) => x && agentOf(x))

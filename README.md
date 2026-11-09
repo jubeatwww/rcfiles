@@ -90,7 +90,7 @@ herdr-app 是 herdr 的桌面版，設定在 `~/.config/herdr-app/`（`HERDR_APP
 | `mods/my-agents/` | Agents 清單：每個 agent 三行（狀態、agent 名稱依種類上色；在做什麼；space · tab） |
 | `mods/my-pane/` | pane 下方一行：程式名稱、完整路徑（家目錄縮成 `~`；agent 用它自己回報的目錄）、git branch、worktree 標記、ahead/behind、`+` staged `~` unstaged `?` untracked；在 repo 裡滑過去有 `+ worktree` |
 | `mods/git-sidebar/` | 右邊面板的 Git（tab 列的 Git 按鈕、`ctrl-a g`，或點 pane 下方的 branch），跟 Files / Changes 同一個位置：焦點 pane 所在 repo 裡你的 PR——只列目前 `gh` 帳號開的（`--author @me`，`gh auth switch` 切換）：目前 branch 那個的每個 check（GitHub Actions、Jenkins 這類 commit status），和其他 open 的（本機有 branch 的排前面）、worktree（點了切到開著它的 tab，沒有就在這個 space 開一個；`×` 刪除一個；`Clean up` 先 `git fetch --prune`，列出 branch 已合併進主線或遠端已刪 gone 的，乾淨又沒開著的預設勾選，確認後一次刪）、本機 branch（`+ worktree` 直接開）。刪除會先關掉開在裡面的 tab，再 `git worktree remove`（有改動或 submodule 時加 `--force`，確認視窗會先列出會失去什麼），已合併 / gone 的 branch 用 `git branch -d` 一起刪（沒合併的 git 會拒絕，就保留），最後 `git worktree prune`。git 15 秒、`gh` 60 秒問一次，只在打開時。新 worktree 開成目前 space 的 tab（以 branch 命名），放在 `~/.herdr/worktrees/<repo>/<branch>`：本機 branch 直接 checkout，只在 origin 的追蹤 `origin/<branch>`，新名字從目前的 HEAD 開 |
-| `mods/agent-usage/` | tab 列下方那條：左邊是這個 tab 的 agent（Claude Code、Codex）的 session——model、effort、context、費用；右邊是它的帳號用量（5 小時 / 每週）。沒有 agent 的 tab 只顯示所有 agent 的用量 |
+| `mods/agent-usage/` | tab 列下方那條：左邊是這個 tab 的 agent（Claude Code、Codex）的 session——model、effort、context、費用；右邊是它的帳號用量（5 小時 / 每週），只看這個 tab 所在機器的 session（不同機器常登入不同帳號）。沒有 agent 的 tab 只顯示所有 agent 的用量 |
 
 **用複製，不用 symlink**：herdr-app 偵測不到 symlink 目標的變動，連過去的檔案改了不會生效，寫錯也不會報錯，要重開 app 才讀得到。所以：
 
@@ -147,6 +147,9 @@ Rust 寫的小程式，把 agent 的 session 狀態寫成終端機 label `agent.
 - MesloLGS NF 字型（p10k 用；Linux 只在有桌面環境時裝）——記得在 terminal 把字型切過去
 - [herdr](https://herdr.dev)（裝到 `~/.local/bin`，Linux / macOS）
 - Claude Code 的 status line（見 [Claude Code status line](#claude-code-status-line)）：
-  ccstatusline 用 npm 裝；`agent-status` 用 cargo 裝到 `~/.cargo/bin`，沒有 cargo 就略過
+  ccstatusline 用 npm 裝；`agent-status` 用 cargo 裝到 `~/.local/bin`（跟 `hc`、`herdr` 同一處：
+  裝 Rust 之前就開著的 agent，PATH 裡沒有 `~/.cargo/bin`），沒有 cargo 就略過——先裝
+  [rustup](https://rustup.rs)：`curl https://sh.rustup.rs -sSf | sh -s -- -y --profile minimal --no-modify-path`
+  （`.zshenv` 會自己載入 `~/.cargo/env`）
 
 zsh、bash、git、curl、tmux、vim 本身由 `bootstrap.sh` 用套件管理器裝（`bootstrap.sh` 是 POSIX sh，所以連 bash 都沒有的 Alpine / FreeBSD 也能跑）。

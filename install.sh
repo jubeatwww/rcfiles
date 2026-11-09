@@ -266,13 +266,15 @@ install_ccstatusline() {
 }
 
 # agent-status: agent sessions for herdr-app (tools/agent-status). Needs cargo.
+# Into ~/.local/bin, beside hc and herdr: agents started before Rust was installed
+# have no ~/.cargo/bin on their PATH, so Claude Code wouldn't find it there.
 install_agent_status() {
   if ! command -v cargo >/dev/null 2>&1; then
     say skip "agent-status (no cargo)"
     return
   fi
-  say install "agent-status -> ~/.cargo/bin"
-  cargo install --quiet --locked --path "$RCFILES/tools/agent-status"
+  say install "agent-status -> ~/.local/bin"
+  cargo install --quiet --locked --path "$RCFILES/tools/agent-status" --root "$HOME/.local"
 }
 
 install_deps() {
