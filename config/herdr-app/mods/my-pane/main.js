@@ -4,7 +4,8 @@
 // Cloned from the shipped `pane` mod. One line: the program's icon and name, where
 // the pane is (the full folder, home as ~) and its git state (branch, a mark when
 // it's a linked worktree, ahead/behind, and staged (+), unstaged (~) and untracked
-// (?) files); then the agent's status and, on hover, split / zoom / close buttons.
+// (?) files); then the agent's status and, on hover, + worktree (in a repo: a new
+// worktree as a tab here, through git-sidebar's dialog) and split / zoom / close buttons.
 // An agent's session (model, context, ...) is in the bar under the tabs (agent-usage).
 // Props from the app: { pane, terminal }.
 //
@@ -13,7 +14,7 @@
 
 import { View, div, svg, image } from "gpui-kit";
 import { h_flex } from "gpui-base";
-import { panes, spaces, terminals, props, run, theme, home, exec, window } from "herdr";
+import { panes, spaces, terminals, props, run, theme, home, exec, window, openOverlay } from "herdr";
 
 // git is asked again this often while the window is in front, besides on a new
 // folder or an agent's turn ending.
@@ -139,9 +140,19 @@ export default class Pane extends View {
       .child(svg(`mods/my-pane/${icon}.svg`).size(14));
   }
 
-  gitPart(t, g) {
+  // Click: this pane's repo in the side panel's Git view (git-sidebar mod, the "git"
+  // child of the "panel-body" stack).
+  gitPart(t, g, pane) {
     const n = (text, color) => div().flex_none().text_color(color).child(text);
-    return h_flex().flex_none().gap(6).items_center()
+    return h_flex().id(`pane-git-${pane}`).flex_none().gap(6).items_center().px(4).rounded(4).cursor_pointer()
+      .hover((s) => s.bg(t.hover))
+      .tooltip("Worktrees, branches and pull requests (ctrl-a g)")
+      .on_click((_e, cx) => {
+        cx.stop_propagation();
+        run("pane.focus", { pane });
+        run("layout.select", { stack: "panel-body", child: "git" });
+        run("layout.show", { id: "panel" });
+      })
       .child(svg(`mods/workspace-chrome/branch.svg`).size(12).flex_none().text_color(g.worktree ? t.accent : t.dim))
       .child(div().flex_none().max_w(220).truncate().text_color(g.worktree ? t.accent : t.muted).child(g.branch === "(detached)" ? "detached" : g.branch ?? "?"))
       .when(g.worktree, (el) => el.child(div().flex_none().px(5).h(16).flex().items_center().rounded(4).bg(t.accent + "26").text_size(10.5).text_color(t.accent).child("worktree")))
@@ -181,11 +192,22 @@ export default class Pane extends View {
       .when(Boolean(pic), (el) => el.child(pic))
       .child(div().flex_none().truncate().max_w(200).font_medium().text_color(t.foreground).child(name))
       .child(div().min_w(0).flex_shrink(1).truncate().text_color(t.dim).child(folder(dir)))
-      .when(Boolean(g), (el) => el.child(this.gitPart(t, g)))
+      .when(Boolean(g), (el) => el.child(this.gitPart(t, g, pane)))
       .child(div().flex_1())
       .when(st === "working", el => el.child(svg("mods/workspace-chrome/spinner.svg").size(12).flex_none().text_color(t.working).spin(900)))
       .when(st === "blocked", el => el.child(div().flex_none().px(6).h(18).flex().items_center().rounded(5).bg(t.blocked + "26").text_size(10.5).font_semibold().text_color(t.blocked).child("Needs you")))
       .when(st === "done", el => el.child(div().size(7).flex_none().rounded(4).bg(t.done)))
+      // In a repo: a new worktree from here, as a tab in this space (git-sidebar's dialog).
+      .when(this.hovered && Boolean(g), el => el.child(div().id(`ph-wt-${pane}`).flex_none().px(5).rounded(4).text_color(t.dim)
+        .hover((s) => s.bg(t.hover).text_color(t.foreground))
+        .tooltip("New worktree, as a tab here")
+        .on_click((_e, cx) => {
+          cx.stop_propagation();
+          const [machine] = this.where(p);
+          const space = spaces().find((s) => (s.tabs ?? []).some((x) => x.id === p.tab))?.id;
+          openOverlay({ mod: "git-sidebar", kind: "dialog", width: 460, height: 210, props: { dialog: "worktree", dir, machine, space } });
+        })
+        .child("+ worktree")))
       .when(this.hovered, el => el
         .child(this.button(t, `ph-r-${pane}`, "split-right", "pane.split", { direction: "right", pane }))
         .child(this.button(t, `ph-d-${pane}`, "split-down", "pane.split", { direction: "down", pane }))
