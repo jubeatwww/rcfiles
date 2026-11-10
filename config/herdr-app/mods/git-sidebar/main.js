@@ -9,6 +9,9 @@
 //     a double-click switches the main checkout to it and takes you there (switchTo)
 // It is the "git" child of the side panel's stack ("panel" > "panel-body"), opened with
 // the tab bar's Git button (my-tabs), ctrl-a g, or by clicking the branch under a pane.
+// A click on a section's title folds it: folded sections stack at the panel's bottom, as
+// in IDEA's tool windows, each with a summary (its count; the branch PR's checks).
+// Dragging a title onto another moves the section there.
 // Asks git every 15 s and GitHub (gh) every 60 s, only while shown; ↻ asks now.
 // An agent's folder comes from its `agent.status` label (rcfiles/tools/agent-status).
 //
@@ -42,6 +45,32 @@ const GH_EVERY = 60000;
 const SHORT = { prs: 8, branches: 12 };
 const PR_FIELDS = "number,title,headRefName,isDraft,reviewDecision,author,url,statusCheckRollup";
 const PR_LIMIT = 50;
+// The sections, in their first order; which are folded and the order you dragged them
+// into are kept across restarts (this copy's localStorage).
+const SECTIONS = ["pr", "mine", "worktrees", "branches"];
+const FOLDED = "git-sidebar.folded";
+const ORDER = "git-sidebar.order";
+
+function load(key) {
+  try {
+    const v = JSON.parse(localStorage.getItem(key) ?? "null");
+    return Array.isArray(v) ? v : null;
+  } catch {
+    return null;
+  }
+}
+
+function save(key, value) {
+  try {
+    localStorage.setItem(key, JSON.stringify(value));
+  } catch {}
+}
+
+// The saved order, with sections it doesn't name yet in their first place.
+function loadOrder() {
+  const saved = [...new Set(load(ORDER) ?? [])].filter((k) => SECTIONS.includes(k));
+  return [...saved, ...SECTIONS.filter((k) => !saved.includes(k))];
+}
 
 function find(node, id) {
   if (node?.id === id) return node;
@@ -120,6 +149,10 @@ export default class GitSidebar extends View {
     this.gitAt = 0;
     this.gh = {}; // [machine, common dir] -> { at, prs, error }
     this.expanded = { prs: false, branches: false };
+    this.folded = new Set(load(FOLDED) ?? []);
+    this.order = loadOrder();
+    this.pressed = null; // the section title being dragged
+    this.over = null; // the one it would land by
     this.hovered = null;
     cx.timer.every(1000, (cx) => this.check(cx));
   }
@@ -506,12 +539,77 @@ export default class GitSidebar extends View {
       .child(div().text_color(t.muted).child(`#${pr.number}`));
   }
 
-  section(t, title, count, extra) {
-    return h_flex().px(12).pt(12).pb(4).gap(6).items_center().text_size(11).font_medium().text_color(t.dim)
-      .child(div().child(title))
-      .when(count != null, (el) => el.child(div().child(String(count))))
-      .child(div().flex_1())
-      .when(Boolean(extra), (el) => el.child(extra));
+  // A section's title row; a click folds or unfolds it, a drag onto another title moves it
+  // there (the spaces sidebar's way: press, move, release on a title). Unfolded it heads
+  // its rows, with `extra` (buttons) on the right; folded it is a bar in the dock, with
+  // `summary`. Open ones move among the open, folded ones among the folded.
+  fold(t, { key, title, count, extra, summary }) {
+    const folded = this.folded.has(key);
+    const at = (k) => this.order.indexOf(k);
+    const landing = this.pressed !== null && this.pressed !== key && this.over === key;
+    const head = h_flex().id(`sec-${key}`).relative().flex_none().gap(5).items_center().text_size(11).font_medium().text_color(t.dim)
+      .cursor_pointer()
+      .when(this.pressed === key && this.over !== null && this.over !== key, (el) => el.opacity(0.5))
+      // Where it lands: after this one moving down, before it moving up.
+      .when(landing, (el) => el.child(div().absolute().left(0).right(0).h(2).bg(t.accent)
+        .when(at(this.pressed) < at(key), (line) => line.bottom(0))
+        .when(at(this.pressed) > at(key), (line) => line.top(0))))
+      .on_mouse_down("left", () => {
+        this.pressed = key;
+        this.over = key;
+      })
+      .on_mouse_move((_e, cx) => {
+        const over = this.pressed !== null && this.folded.has(this.pressed) === folded ? key : null;
+        if (this.pressed !== null && this.over !== over) {
+          this.over = over;
+          cx.notify();
+        }
+      })
+      .on_hover((on, cx) => {
+        if (!on && this.over === key && this.pressed !== key) {
+          this.over = null;
+          cx.notify();
+        }
+      })
+      .on_mouse_up("left", (_e, cx) => {
+        const from = this.pressed;
+        const over = this.over;
+        this.pressed = null;
+        this.over = null;
+        if (from !== null && from !== key && over === key) this.move(from, key);
+        else if (from === key) this.toggle(key);
+        cx.notify();
+      })
+      .child(svg(icon(folded ? "chevron-right" : "chevron-down")).size(12).flex_none())
+      .child(div().flex_none().child(title))
+      .when(count != null, (el) => el.child(div().flex_none().child(String(count))))
+      .child(div().flex_1());
+    return folded
+      ? head.h(28).px(10).border_t(1).border_color(t.border).hover((s) => s.bg(t.hover).text_color(t.foreground))
+        .when(Boolean(summary), (el) => el.child(summary))
+      : head.px(10).pt(10).pb(4).hover((s) => s.text_color(t.foreground))
+        .when(Boolean(extra), (el) => el.child(extra));
+  }
+
+  toggle(key) {
+    if (!this.folded.delete(key)) this.folded.add(key);
+    save(FOLDED, [...this.folded]);
+  }
+
+  // Puts section `from` by `to`: after it when moving down, before it when moving up.
+  move(from, to) {
+    const down = this.order.indexOf(from) < this.order.indexOf(to);
+    const order = this.order.filter((k) => k !== from);
+    order.splice(order.indexOf(to) + (down ? 1 : 0), 0, from);
+    this.order = order;
+    save(ORDER, order);
+  }
+
+  // The worst state among some pull requests' checks, as one icon.
+  prsSummary(t, list) {
+    const states = list.map((p) => rollup(p.statusCheckRollup));
+    const worst = ["fail", "pending", "ok"].find((s) => states.includes(s)) ?? null;
+    return this.stateIcon(t, worst, 11);
   }
 
   note(t, text, color) {
@@ -656,32 +754,79 @@ export default class GitSidebar extends View {
     const loose = r.branches.filter((b) => !b.worktree);
     const shownBranches = this.expanded.branches ? loose : loose.slice(0, SHORT.branches);
 
-    const body = v_flex().id("git-body").flex_1().min_h(0).pb(12).overflow_y_scrollbar()
+    const sections = [
       // The branch you're on.
-      .child(this.section(t, "Pull request"))
-      .when(!gh, (el) => el.child(this.note(t, "Asking GitHub…")))
-      .when(Boolean(gh?.error), (el) => el.child(this.note(t, gh.error, t.ansi3)))
-      .when(Boolean(current), (el) => el.child(this.currentPr(t, current)))
-      .when(Boolean(gh) && !gh.error && !current, (el) => el.child(this.note(t, r.branch ? `None of yours open for ${r.branch}.` : "Detached HEAD.")))
+      {
+        key: "pr",
+        title: "Pull request",
+        summary: current && h_flex().flex_none().gap(4).items_center()
+          .child(this.stateIcon(t, rollup(current.statusCheckRollup), 11))
+          .child(div().text_color(t.muted).child(`#${current.number}`)),
+        rows: [
+          !gh && this.note(t, "Asking GitHub…"),
+          gh?.error && this.note(t, gh.error, t.ansi3),
+          current && this.currentPr(t, current),
+          gh && !gh.error && !current && this.note(t, r.branch ? `None of yours open for ${r.branch}.` : "Detached HEAD."),
+        ],
+      },
       // Your others in this repo.
-      .when(others.length > 0, (el) => el
-        .child(this.section(t, "My pull requests", prs.length >= PR_LIMIT ? `${others.length}+` : others.length))
-        .children(shownPrs.map(({ p, local }) => this.prRow(t, p, local)))
-        .when(others.length > SHORT.prs, (el) => el.child(this.more(t, "prs", others.length - SHORT.prs))))
-      .child(this.section(t, "Worktrees", r.worktrees.length, h_flex().gap(2).items_center()
-        .when(r.worktrees.length > 1, (el) => el.child(h_flex().id("wt-clean").h(22).px(6).gap(4).items_center().rounded(6).text_color(t.dim)
-          .hover((s) => s.bg(t.hover).text_color(t.foreground))
-          .tooltip("Remove worktrees whose branch is merged or gone…").on_click(() => this.cleanUp())
-          .child(svg(icon("trash")).size(11).flex_none()).child("Clean up")))
-        .child(this.iconButton(t, "wt-new", "plus", "New worktree, as a tab here", () => this.newWorktree()))))
-      .when(Boolean(this.adding), (el) => el.child(this.note(t, `Checking out ${this.adding}…`)))
-      .when(Boolean(this.addError), (el) => el.child(this.note(t, this.addError, t.ansi1)))
-      .children(r.worktrees.map((w, i) => this.worktreeRow(t, w, w === here, w.branch ? byBranch.get(w.branch) : null, i)))
-      .child(this.section(t, "Branches", loose.length, loose.length > 0 ? div().font_normal().child("double-click to switch") : null))
-      .when(Boolean(this.switchError), (el) => el.child(this.note(t, this.switchError, t.ansi1)))
-      .when(loose.length === 0, (el) => el.child(this.note(t, "Every branch is in a worktree.")))
-      .children(shownBranches.map((b, i) => this.branchRow(t, b, byBranch.get(b.name), b.name === r.branch, i)))
-      .when(loose.length > SHORT.branches, (el) => el.child(this.more(t, "branches", loose.length - SHORT.branches)));
-    return root.child(body);
+      others.length > 0 && {
+        key: "mine",
+        title: "My pull requests",
+        count: prs.length >= PR_LIMIT ? `${others.length}+` : others.length,
+        summary: this.prsSummary(t, others.map(({ p }) => p)),
+        rows: [
+          ...shownPrs.map(({ p, local }) => this.prRow(t, p, local)),
+          others.length > SHORT.prs && this.more(t, "prs", others.length - SHORT.prs),
+        ],
+      },
+      {
+        key: "worktrees",
+        title: "Worktrees",
+        count: r.worktrees.length,
+        extra: h_flex().gap(2).items_center()
+          .when(r.worktrees.length > 1, (el) => el.child(h_flex().id("wt-clean").h(22).px(6).gap(4).items_center().rounded(6).text_color(t.dim)
+            .hover((s) => s.bg(t.hover).text_color(t.foreground))
+            .on_mouse_down("left", (_e, cx) => cx.stop_propagation())
+            .tooltip("Remove worktrees whose branch is merged or gone…")
+            .on_click((_e, cx) => { cx.stop_propagation(); this.cleanUp(); })
+            .child(svg(icon("trash")).size(11).flex_none()).child("Clean up")))
+          .child(this.iconButton(t, "wt-new", "plus", "New worktree, as a tab here", () => this.newWorktree())),
+        rows: [
+          this.adding && this.note(t, `Checking out ${this.adding}…`),
+          this.addError && this.note(t, this.addError, t.ansi1),
+          ...r.worktrees.map((w, i) => this.worktreeRow(t, w, w === here, w.branch ? byBranch.get(w.branch) : null, i)),
+        ],
+      },
+      {
+        key: "branches",
+        title: "Branches",
+        count: loose.length,
+        extra: loose.length > 0 ? div().font_normal().child("double-click to switch") : null,
+        rows: [
+          this.switchError && this.note(t, this.switchError, t.ansi1),
+          loose.length === 0 && this.note(t, "Every branch is in a worktree."),
+          ...shownBranches.map((b, i) => this.branchRow(t, b, byBranch.get(b.name), b.name === r.branch, i)),
+          loose.length > SHORT.branches && this.more(t, "branches", loose.length - SHORT.branches),
+        ],
+      },
+    ].filter(Boolean).sort((a, b) => this.order.indexOf(a.key) - this.order.indexOf(b.key));
+    const open = sections.filter((s) => !this.folded.has(s.key));
+    const shut = sections.filter((s) => this.folded.has(s.key));
+
+    const body = v_flex().id("git-body").flex_1().min_h(0).when(open.length > 0, (el) => el.pb(12)).overflow_y_scrollbar()
+      .children(open.flatMap((s) => [this.fold(t, s), ...s.rows.filter(Boolean)]));
+    // Folded ones, at the bottom.
+    const dock = v_flex().id("git-dock").flex_none().children(shut.map((s) => this.fold(t, s)));
+    // A drag let go anywhere but on a title, or taken out of the panel, moves nothing.
+    const drop = (cx) => {
+      if (this.pressed === null) return;
+      this.pressed = null;
+      this.over = null;
+      cx.notify();
+    };
+    return root.child(body).when(shut.length > 0, (el) => el.child(dock))
+      .on_mouse_up("left", (_e, cx) => drop(cx))
+      .on_hover((on, cx) => { if (!on) drop(cx); });
   }
 }
