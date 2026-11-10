@@ -47,12 +47,12 @@ export function parseWorktrees(out) {
   return list;
 }
 
-export const BRANCH_FORMAT = "--format=%(refname:short)%09%(upstream:short)%09%(upstream:track)%09%(committerdate:unix)%09%(worktreepath)";
+export const BRANCH_FORMAT = "--format=%(refname:short)%09%(upstream:short)%09%(upstream:track)%09%(committerdate:unix)%09%(worktreepath)%09%(contents:subject)";
 
-// `git for-each-ref refs/heads` with BRANCH_FORMAT.
+// `git for-each-ref refs/heads` with BRANCH_FORMAT. `subject`: its last commit's.
 export function parseBranches(out) {
   return (out ?? "").split(/\r?\n/).filter(Boolean).map((line) => {
-    const [name, upstream, track, at, worktree] = line.split("\t");
+    const [name, upstream, track, at, worktree, ...subject] = line.split("\t");
     return {
       name,
       upstream: upstream || null,
@@ -61,6 +61,7 @@ export function parseBranches(out) {
       behind: Number(/behind (\d+)/.exec(track ?? "")?.[1] ?? 0),
       at: Number(at) || 0,
       worktree: worktree || null,
+      subject: subject.join("\t").trim(),
     };
   });
 }

@@ -1,11 +1,13 @@
 // A side panel (beside Files and Changes) for the git repo of the focused pane:
-//   - your pull request for the current branch and each of its checks (GitHub Actions
-//     check runs and commit statuses, such as Jenkins)
+//   - your pull request for the current branch and its checks, folded to counts (GitHub Actions
+//     check runs and commit statuses, such as Jenkins); a click lists each
 //   - your other open pull requests in the repo, those with a branch here first
 //     ("yours": the active gh account, `gh pr list --author @me`)
 //   - worktrees: click to go to the tab showing one, or to open a tab there; × removes
 //     one, Clean up removes those whose branch is merged or gone (worktrees.js)
-//   - local branches: upstream state, a pull request badge; + worktree makes one;
+//   - local branches: upstream state, a pull request badge, what it is (its pull
+//     request title, else its last commit subject), newest first, those gone from
+//     origin folded into one row; + worktree makes one;
 //     a double-click switches the main checkout to it and takes you there (switchTo)
 // It is the "git" child of the side panel's stack ("panel" > "panel-body"), opened with
 // the tab bar's Git button (my-tabs), ctrl-a g, or by clicking the branch under a pane.
@@ -42,7 +44,7 @@ const VIEWS = "git-body";
 const VIEW = "git-overview";
 const GIT_EVERY = 15000;
 const GH_EVERY = 60000;
-const SHORT = { prs: 8, branches: 12 };
+const SHORT = { prs: 8, branches: 8 };
 const PR_FIELDS = "number,title,headRefName,isDraft,reviewDecision,author,url,statusCheckRollup";
 const PR_LIMIT = 50;
 // The sections, in their first order; which are folded and the order you dragged them
@@ -63,6 +65,23 @@ function load(key) {
 function save(key, value) {
   try {
     localStorage.setItem(key, JSON.stringify(value));
+  } catch {}
+}
+
+// The current pull request's checks listed one per line (else folded to their counts).
+const CHECKS = "git-sidebar.checks";
+
+function loadFlag(key) {
+  try {
+    return localStorage.getItem(key) === "1";
+  } catch {
+    return false;
+  }
+}
+
+function saveFlag(key, on) {
+  try {
+    localStorage.setItem(key, on ? "1" : "0");
   } catch {}
 }
 
@@ -126,6 +145,10 @@ function rollup(checks) {
   return states.includes("fail") ? "fail" : states.includes("pending") ? "pending" : "ok";
 }
 
+// A commit subject without a leading ticket, which the branch name says already:
+// "[SPLT-1] fix: x" is "fix: x".
+const aboutOf = (subject) => (subject ?? "").replace(/^\[[A-Za-z][A-Za-z0-9]*-\d+\]\s*/, "");
+
 const checkName = (c) => (c.__typename === "CheckRun" ? [c.workflowName, c.name].filter(Boolean).join(" / ") : c.context) || "check";
 const checkUrl = (c) => c.detailsUrl || c.targetUrl || null;
 
@@ -143,14 +166,16 @@ export default class GitSidebar extends View {
   init(_props, cx) {
     if (props()?.dialog === "worktree") return this.initDialog(cx);
     if (props()?.dialog === "cleanup") return this.initCleanup(cx);
+    if (props()?.dialog === "gone") return this.initGone(cx);
     this.place = null; // { dir, machine, space } of the last focused terminal
     this.key = null;
     this.repo = undefined; // undefined: not asked; null: not a repo
     this.gitAt = 0;
     this.gh = {}; // [machine, common dir] -> { at, prs, error }
-    this.expanded = { prs: false, branches: false };
+    this.expanded = { prs: false, branches: false, gone: false };
     this.folded = new Set(load(FOLDED) ?? []);
     this.order = loadOrder();
+    this.checksOpen = loadFlag(CHECKS);
     this.pressed = null; // the section title being dragged
     this.over = null; // the one it would land by
     this.hovered = null;
@@ -496,9 +521,7 @@ export default class GitSidebar extends View {
     const only = Boolean(p.only);
     const chosen = this.items.filter((i) => i.on).length;
     const status = { fetching: "Fetching origin…", checking: "Checking worktrees…" }[this.phase];
-    const button = (id, label, enabled, action, primary) => div().id(id).h(30).px(14).flex().items_center().rounded(7).text_size(12.5)
-      .bg(primary && enabled ? t.solid : t.raised).text_color(primary && enabled ? t.solid_foreground : enabled ? t.foreground : t.dim)
-      .when(enabled, (el) => el.cursor_pointer().on_click(action)).child(label);
+    const button = (...args) => this.dialogButton(t, ...args);
     return v_flex().id("git-cleanup").size_full().p(16).gap(10).bg(t.popover).text_size(13)
       .on_key_down((e) => { if (e.key === "escape" && this.phase !== "removing") closeOverlay(p.overlay); })
       .child(div().font_semibold().text_color(t.foreground).child(only ? "Remove worktree" : "Clean up worktrees"))
@@ -514,6 +537,130 @@ export default class GitSidebar extends View {
           .child(button("clean-cancel", "Cancel", this.phase !== "removing", () => closeOverlay(p.overlay), false))
           .child(button("clean-go", this.phase === "removing" ? "Removing…" : `Remove ${chosen || ""}`.trim(), this.phase === "ready" && chosen > 0, (_e, cx) => this.runCleanup(cx), true)))
         .when(this.phase === "done", (el) => el.child(button("clean-close", "Close", true, () => closeOverlay(p.overlay), true))));
+  }
+
+  dialogButton(t, id, label, enabled, action, primary) {
+    return div().id(id).h(30).px(14).flex().items_center().rounded(7).text_size(12.5)
+      .bg(primary && enabled ? t.solid : t.raised).text_color(primary && enabled ? t.solid_foreground : enabled ? t.foreground : t.dim)
+      .when(enabled, (el) => el.cursor_pointer().on_click(action)).child(label);
+  }
+
+  // ---------------------------------------------------------------------------
+  // Deleting branches gone from origin: props { dialog: "gone", dir, machine, overlay }.
+  // After `git fetch --prune`, every local branch whose upstream is gone and that no
+  // worktree has checked out. Ticked when all its commits are still on origin (merged);
+  // not when some are on no remote, which a squash merge looks like too. Deleting is
+  // `git branch -D`: -d would refuse one merged on origin but not into local HEAD.
+
+  // Clean up on the "gone from origin" row.
+  cleanGone() {
+    const { dir, machine } = this.place;
+    openOverlay({ mod: "git-sidebar", kind: "dialog", width: 540, height: 440, props: { dialog: "gone", dir, machine } });
+  }
+
+  initGone(cx) {
+    const p = props();
+    this.phase = "fetching";
+    this.items = [];
+    this.error = "";
+    const git = (args, timeout = 30000) => exec("git", args, { cwd: p.dir, on: p.machine, timeout });
+    cx.spawn(async (cx) => {
+      try {
+        // Offline: go on with what is known.
+        await git(["fetch", "--prune", "--quiet", "origin"], 120000).catch(() => {});
+        this.phase = "checking";
+        cx.notify();
+        this.base = await baseBranch(git);
+        const merged = new Set(this.base ? (await git(["branch", "--merged", this.base, "--format=%(refname:short)"])).stdout.split(/\r?\n/).filter(Boolean) : []);
+        const refs = await git(["for-each-ref", "refs/heads", "--sort=-committerdate", BRANCH_FORMAT]);
+        for (const b of parseBranches(refs.stdout).filter((x) => x.gone && !x.worktree)) {
+          // Commits on no remote; -1: couldn't tell.
+          const count = await git(["rev-list", "--count", b.name, "--not", "--remotes"]);
+          const unpushed = count.code === 0 ? Number(count.stdout.trim()) || 0 : -1;
+          this.items.push({ b, merged: merged.has(b.name), unpushed, on: unpushed === 0 });
+          cx.notify();
+        }
+      } catch (e) {
+        this.error = String(e?.message ?? e);
+      }
+      this.phase = "ready";
+      cx.notify();
+    });
+  }
+
+  runGone(cx) {
+    const chosen = this.items.filter((i) => i.on);
+    if (this.phase !== "ready" || chosen.length === 0) return;
+    const p = props();
+    this.phase = "removing";
+    cx.notify();
+    cx.spawn(async (cx) => {
+      for (const item of chosen) {
+        item.state = "removing";
+        cx.notify();
+        try {
+          const r = await exec("git", ["branch", "-D", item.b.name], { cwd: p.dir, on: p.machine, timeout: 30000 });
+          item.removed = r.code === 0;
+          // "Deleted branch x (was 1a2b3c4)": the commit that brings it back.
+          item.was = /\(was ([0-9a-f]+)\)/.exec(r.stdout)?.[1] ?? null;
+          item.error = r.code === 0 ? "" : gitError(r.stderr) || "git branch -D failed";
+        } catch (e) {
+          item.removed = false;
+          item.error = String(e?.message ?? e);
+        }
+        item.state = "done";
+        cx.notify();
+      }
+      setShared(CHANGED, Date.now());
+      this.phase = "done";
+      cx.notify();
+    });
+  }
+
+  goneItem(t, item, i) {
+    const b = item.b;
+    const line = (text, color) => div().text_size(11.5).text_color(color).child(text);
+    const about = aboutOf(b.subject);
+    const result = item.state === "removing" ? line("Deleting…", t.dim)
+      : item.state === "done" ? (item.removed
+        ? line(`Deleted${item.was ? `; git branch ${b.name} ${item.was} brings it back` : ""}`, t.ansi2)
+        : line(item.error, t.ansi1))
+      : null;
+    return h_flex().id(`gone-${i}`).px(8).py(6).gap(10).items_start().rounded(6)
+      .when(this.phase === "ready", (el) => el.cursor_pointer().hover((s) => s.bg(t.hover))
+        .on_click((_e, cx) => { item.on = !item.on; cx.notify(); }))
+      .child(div().mt(2).size(14).flex_none().rounded(3).border(1).border_color(item.on ? t.accent : t.input)
+        .bg(item.on ? t.accent : t.background).text_size(10).text_color(t.accent_foreground).flex().items_center().justify_center()
+        .child(item.on ? "✓" : ""))
+      .child(v_flex().flex_1().min_w(0).gap(1)
+        .child(h_flex().gap(8).items_center()
+          .child(div().flex_none().max_w(300).truncate().font_medium().text_color(t.foreground).child(b.name))
+          .child(div().min_w(0).truncate().text_size(11.5).text_color(t.dim).child(b.at ? `${ago(b.at)} ago` : "")))
+        .when(Boolean(about), (el) => el.child(div().truncate().text_size(11).text_color(t.dim).child(about)))
+        .when(Boolean(result), (el) => el.child(result))
+        .when(!result && item.unpushed === 0, (el) => el.child(line(item.merged ? `Merged into ${this.base}` : "All its commits are on origin", t.dim)))
+        .when(!result && item.unpushed > 0, (el) => el.child(line(`${item.unpushed} commit${item.unpushed > 1 ? "s" : ""} on no remote: lost (a squash merge looks like this too)`, t.ansi3)))
+        .when(!result && item.unpushed < 0, (el) => el.child(line("Couldn't check its commits", t.ansi3))));
+  }
+
+  renderGone(t) {
+    const p = props();
+    const chosen = this.items.filter((i) => i.on).length;
+    const status = { fetching: "Fetching origin…", checking: "Checking branches…" }[this.phase];
+    const button = (...args) => this.dialogButton(t, ...args);
+    return v_flex().id("git-gone").size_full().p(16).gap(10).bg(t.popover).text_size(13)
+      .on_key_down((e) => { if (e.key === "escape" && this.phase !== "removing") closeOverlay(p.overlay); })
+      .child(div().font_semibold().text_color(t.foreground).child("Delete branches gone from origin"))
+      .child(div().text_color(t.muted).child("Local branches whose upstream was deleted on origin, in no worktree. Ticked ones have every commit still on origin. Deleting runs git branch -D."))
+      .when(Boolean(status), (el) => el.child(div().text_color(t.dim).child(status)))
+      .when(Boolean(this.error), (el) => el.child(div().text_color(t.blocked).child(this.error)))
+      .when(this.phase === "ready" && this.items.length === 0 && !this.error, (el) => el.child(div().text_color(t.dim).child("No branch is gone from origin.")))
+      .child(v_flex().id("gone-list").flex_1().min_h(0).overflow_y_scrollbar().children(this.items.map((item, i) => this.goneItem(t, item, i))))
+      .child(h_flex().gap(8).justify_end()
+        .when(this.phase !== "done", (el) => el
+          .child(button("gone-cancel", "Cancel", this.phase !== "removing", () => closeOverlay(p.overlay), false))
+          .child(button("gone-go", this.phase === "removing" ? "Deleting…" : `Delete ${chosen || ""}`.trim(), this.phase === "ready" && chosen > 0, (_e, cx) => this.runGone(cx), true)))
+        .when(this.phase === "done", (el) => el.child(button("gone-close", "Close", true, () => closeOverlay(p.overlay), true))));
   }
 
   // ---------------------------------------------------------------------------
@@ -623,19 +770,39 @@ export default class GitSidebar extends View {
       .child(this.expanded[which] ? "Show fewer" : `Show ${hiddenCount} more`);
   }
 
+  // The branch's pull request. Its checks fold into one line of counts (✓4 ✗1); a click
+  // there lists them, one per line.
   currentPr(t, pr) {
     const checks = pr.statusCheckRollup ?? [];
     const review = REVIEW[pr.reviewDecision];
+    const open = this.checksOpen;
+    const tally = { ok: 0, fail: 0, pending: 0, skip: 0 };
+    for (const c of checks) tally[checkState(c)] += 1;
+    const count = (state, color) => tally[state] > 0 && h_flex().flex_none().gap(2).items_center().text_color(color)
+      .child(this.stateIcon(t, state, 11)).child(String(tally[state]));
+    const summary = h_flex().id("pr-checks").flex_none().h(20).px(4).gap(6).items_center().rounded(4).cursor_pointer()
+      .text_size(11.5).text_color(t.dim).hover((s) => s.bg(t.hover).text_color(t.foreground))
+      .tooltip(open ? "Fold the checks" : "List the checks")
+      .on_click((_e, cx) => {
+        this.checksOpen = !open;
+        saveFlag(CHECKS, this.checksOpen);
+        cx.notify();
+      })
+      .child(svg(icon(open ? "chevron-down" : "chevron-right")).size(11).flex_none())
+      .child(`${checks.length} check${checks.length === 1 ? "" : "s"}`)
+      .children([count("fail", t.ansi1), count("pending", t.ansi3), count("ok", t.ansi2), count("skip", t.dim)].filter(Boolean));
     return v_flex().mx(8).mb(2).p(8).gap(6).rounded(8).bg(t.raised)
       .child(h_flex().id("pr-current").gap(6).items_center().cursor_pointer()
         .on_click(() => openUrl(pr.url))
         .child(div().flex_none().text_color(t.muted).child(`#${pr.number}`))
         .child(div().flex_1().min_w(0).truncate().font_medium().text_color(t.foreground).child(pr.title)))
       .child(h_flex().gap(6).items_center()
+        .when(checks.length > 0, (el) => el.child(summary))
+        .when(checks.length === 0, (el) => el.child(div().text_size(11.5).text_color(t.dim).child("No checks")))
+        .child(div().flex_1())
         .when(pr.isDraft, (el) => el.child(this.badge(t, "Draft", t.dim)))
-        .when(Boolean(review), (el) => el.child(this.badge(t, review[0], t[review[1]])))
-        .when(checks.length === 0, (el) => el.child(div().text_size(11.5).text_color(t.dim).child("No checks"))))
-      .children(checks.map((c, i) => h_flex().id(`check-${i}`).gap(7).items_center().h(20).px(2).rounded(4)
+        .when(Boolean(review), (el) => el.child(this.badge(t, review[0], t[review[1]]))))
+      .children((open ? checks : []).map((c, i) => h_flex().id(`check-${i}`).gap(7).items_center().h(20).px(2).rounded(4)
         .when(Boolean(checkUrl(c)), (el) => el.cursor_pointer().hover((s) => s.bg(t.hover)).on_click(() => openUrl(checkUrl(c))))
         .child(this.stateIcon(t, checkState(c), 12))
         .child(div().flex_1().min_w(0).truncate().text_color(t.muted).child(checkName(c)))));
@@ -673,6 +840,27 @@ export default class GitSidebar extends View {
       .child(div().min_w(0).truncate().text_size(11.5).font_semibold().child(text));
   }
 
+  // "▸ 9 gone from origin": a click lists them under it; Clean up deletes them.
+  goneRow(t, n) {
+    const open = this.expanded.gone;
+    return h_flex().id("br-gone").h(26).px(12).gap(8).items_center().cursor_pointer().text_size(11.5).text_color(t.dim)
+      .hover((s) => s.bg(t.hover).text_color(t.foreground))
+      .tooltip("Their upstream is gone from origin: mostly merged and deleted there")
+      .on_click((_e, cx) => {
+        this.expanded.gone = !open;
+        cx.notify();
+      })
+      .child(svg(icon(open ? "chevron-down" : "chevron-right")).size(12).flex_none())
+      .child(div().flex_1().min_w(0).truncate().child(`${n} gone from origin`))
+      .child(h_flex().id("br-gone-clean").h(22).px(6).gap(4).flex_none().items_center().rounded(6).text_color(t.dim)
+        .hover((s) => s.bg(t.hover).text_color(t.foreground))
+        .on_mouse_down("left", (_e, cx) => cx.stop_propagation())
+        .tooltip("Delete branches gone from origin…")
+        .on_click((_e, cx) => { cx.stop_propagation(); this.cleanGone(); })
+        .child(svg(icon("trash")).size(11).flex_none())
+        .child("Clean up"));
+  }
+
   worktreeRow(t, w, current, pr, i) {
     const hovered = this.hovered === `wt-${i}`;
     return h_flex().id(`wt-${i}`).h(30).px(12).gap(8).items_center().cursor_pointer()
@@ -694,7 +882,9 @@ export default class GitSidebar extends View {
   branchRow(t, b, pr, current, i) {
     const hovered = this.hovered === `br-${i}`;
     const switching = this.switching === b.name;
-    return h_flex().id(`br-${i}`).h(26).px(12).gap(8).items_center().cursor_pointer()
+    // What it is, under its name: its pull request's title, else its last commit's subject.
+    const about = pr?.title ?? aboutOf(b.subject);
+    return h_flex().id(`br-${i}`).h(about ? 34 : 26).px(12).gap(8).items_center().cursor_pointer()
       .when(switching, (el) => el.bg(t.selected))
       .hover((s) => s.bg(t.hover))
       .on_hover((on, cx) => { this.hovered = on ? `br-${i}` : this.hovered === `br-${i}` ? null : this.hovered; cx.notify(); })
@@ -703,9 +893,10 @@ export default class GitSidebar extends View {
       .child(switching
         ? svg("mods/workspace-chrome/spinner.svg").size(12).flex_none().text_color(t.accent).spin(900)
         : svg(icon("branch")).size(12).flex_none().text_color(t.dim))
-      .child(div().flex_1().min_w(0).truncate().text_color(b.gone ? t.dim : current ? t.accent : t.foreground).child(b.name))
+      .child(v_flex().flex_1().min_w(0)
+        .child(div().truncate().text_color(b.gone ? t.muted : current ? t.accent : t.foreground).child(b.name))
+        .when(Boolean(about), (el) => el.child(div().truncate().text_size(10.5).text_color(t.dim).child(about))))
       .when(switching, (el) => el.child(div().flex_none().text_size(10.5).text_color(t.dim).child("Switching…")))
-      .when(b.gone, (el) => el.child(div().flex_none().text_size(10.5).text_color(t.dim).child("gone")))
       .when(b.ahead > 0, (el) => el.child(div().flex_none().text_color(t.ansi2).child(`↑${b.ahead}`)))
       .when(b.behind > 0, (el) => el.child(div().flex_none().text_color(t.ansi1).child(`↓${b.behind}`)))
       .when(Boolean(pr), (el) => el.child(this.prBadge(t, pr, `br-pr-${i}`)))
@@ -724,6 +915,7 @@ export default class GitSidebar extends View {
     const t = theme();
     if (props()?.dialog === "worktree") return this.renderDialog(t);
     if (props()?.dialog === "cleanup") return this.renderCleanup(t);
+    if (props()?.dialog === "gone") return this.renderGone(t);
     const r = this.repo;
     const header = h_flex().h(42).flex_none().px(12).gap(6).items_center().border_b(1).border_color(t.border)
       .child(div().flex_none().mr(2).text_size(13).font_semibold().text_color(t.foreground).child("Git"))
@@ -751,8 +943,12 @@ export default class GitSidebar extends View {
       .sort((a, b) => Number(b.local) - Number(a.local) || b.p.number - a.p.number);
     const shownPrs = this.expanded.prs ? others : others.slice(0, SHORT.prs);
     const here = ownerOf(r.worktrees, this.place.dir);
+    // Branches in no worktree, newest commit first; those gone from origin (mostly merged
+    // and deleted there) wait folded in one row at the end.
     const loose = r.branches.filter((b) => !b.worktree);
-    const shownBranches = this.expanded.branches ? loose : loose.slice(0, SHORT.branches);
+    const live = loose.filter((b) => !b.gone);
+    const gone = loose.filter((b) => b.gone);
+    const shownBranches = this.expanded.branches ? live : live.slice(0, SHORT.branches);
 
     const sections = [
       // The branch you're on.
@@ -801,13 +997,16 @@ export default class GitSidebar extends View {
       {
         key: "branches",
         title: "Branches",
-        count: loose.length,
+        count: live.length,
         extra: loose.length > 0 ? div().font_normal().child("double-click to switch") : null,
+        summary: gone.length > 0 && div().flex_none().font_normal().child(`${gone.length} gone`),
         rows: [
           this.switchError && this.note(t, this.switchError, t.ansi1),
           loose.length === 0 && this.note(t, "Every branch is in a worktree."),
           ...shownBranches.map((b, i) => this.branchRow(t, b, byBranch.get(b.name), b.name === r.branch, i)),
-          loose.length > SHORT.branches && this.more(t, "branches", loose.length - SHORT.branches),
+          live.length > SHORT.branches && this.more(t, "branches", live.length - SHORT.branches),
+          gone.length > 0 && this.goneRow(t, gone.length),
+          ...(this.expanded.gone ? gone.map((b, i) => this.branchRow(t, b, byBranch.get(b.name), b.name === r.branch, `gone-${i}`)) : []),
         ],
       },
     ].filter(Boolean).sort((a, b) => this.order.indexOf(a.key) - this.order.indexOf(b.key));
