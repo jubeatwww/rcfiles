@@ -5,7 +5,8 @@
 //     ("yours": the active gh account, `gh pr list --author @me`)
 //   - worktrees: click to go to the tab showing one, or to open a tab there; × removes
 //     one, Clean up removes those whose branch is merged or gone (worktrees.js)
-//   - local branches: upstream state, a pull request badge; + worktree makes one
+//   - local branches: upstream state, a pull request badge; + worktree makes one;
+//     a double-click switches the main checkout to it and takes you there (switchTo)
 // It is the "git" child of the side panel's stack ("panel" > "panel-body"), opened with
 // the tab bar's Git button (my-tabs), ctrl-a g, or by clicking the branch under a pane.
 // Asks git every 15 s and GitHub (gh) every 60 s, only while shown; ↻ asks now.
@@ -14,14 +15,18 @@
 // New worktrees open as a tab in the current space, not as a space (the shipped
 // worktree mod's way). Opened with props { dialog: "worktree", dir, machine, space },
 // this mod is the dialog that asks for the branch (my-pane's + worktree uses it too).
+//
+// The look follows rabeeh-ta/herdr-git-graph: a branch pill in the header, Lucide icons.
 
 import { View, div, svg } from "gpui-kit";
 import { v_flex, h_flex, InputState, Input } from "gpui-base";
-import { panes, spaces, focused, layout, run, theme, exec, window, openOverlay, closeOverlay, props, shared, setShared } from "herdr";
+import { panes, spaces, focused, layout, run, theme, exec, hc, window, openOverlay, closeOverlay, props, shared, setShared } from "herdr";
 import {
-  slash, same, inside, tilde, repoName, agentDir, parseWorktrees, parseBranches, BRANCH_FORMAT,
+  slash, same, inside, tilde, gitError, repoName, agentDir, parseWorktrees, parseBranches, BRANCH_FORMAT,
   homeOf, worktreeRoot, addWorktree, baseBranch, panesIn, inspect, removeWorktree,
 } from "./worktrees.js";
+
+const icon = (name) => `mods/git-sidebar/icons/${name}.svg`;
 
 // Set when a dialog changed worktrees or branches: the panel asks git again.
 const CHANGED = "git-sidebar.changed";
@@ -29,6 +34,9 @@ const CHANGED = "git-sidebar.changed";
 const NODE = "git";
 const PANEL = "panel";
 const STACK = "panel-body";
+// Inside "git": this view, or git-views switched to the commit graph.
+const VIEWS = "git-body";
+const VIEW = "git-overview";
 const GIT_EVERY = 15000;
 const GH_EVERY = 60000;
 const SHORT = { prs: 8, branches: 12 };
@@ -43,10 +51,10 @@ function find(node, id) {
   }
   return null;
 }
-// The side panel is open on this one.
+// The side panel is open on this one (and not on the graph beside it).
 const shown = () => {
-  const root = layout(), panel = find(root, PANEL), stack = find(root, STACK);
-  return Boolean(panel) && !panel.hidden && stack?.active === NODE;
+  const root = layout(), panel = find(root, PANEL), stack = find(root, STACK), views = find(root, VIEWS);
+  return Boolean(panel) && !panel.hidden && stack?.active === NODE && (!views || views.active === VIEW);
 };
 
 const firstLine = (s) => (s ?? "").trim().split(/\r?\n/).find(Boolean) ?? "";
@@ -56,15 +64,18 @@ function ago(unix) {
   return d < 3600 ? `${Math.max(1, Math.round(d / 60))}m` : d < 86400 ? `${Math.round(d / 3600)}h` : d < 86400 * 60 ? `${Math.round(d / 86400)}d` : `${Math.round(d / 86400 / 30)}mo`;
 }
 
-// The focused terminal's folder, machine and space.
+// The focused terminal's folder, machine, space and pane.
 function focusedPlace() {
   const f = focused();
   const p = panes().find((x) => x.pane === f?.pane) ?? panes().find((x) => x.terminal && x.terminal === f?.terminal);
   if (!p?.terminal) return null;
   const space = spaces().find((s) => (s.tabs ?? []).some((t) => t.id === p.tab));
   const dir = agentDir(p.terminal) ?? p.cwd;
-  return dir ? { dir, machine: space?.machine ?? null, space: space?.id ?? null } : null;
+  return dir ? { dir, machine: space?.machine ?? null, space: space?.id ?? null, pane: p.pane } : null;
 }
+
+// The worktree of `all` a folder is in (the deepest: worktrees can nest).
+const ownerOf = (all, dir) => [...all].sort((a, b) => slash(b.path).length - slash(a.path).length).find((w) => inside(dir ?? "", w.path)) ?? null;
 
 // One check: ok, fail, pending or skip. Check runs (Actions) have status and conclusion;
 // commit statuses (Jenkins and the like) have state.
@@ -206,16 +217,55 @@ export default class GitSidebar extends View {
 
   // The tab showing a worktree (a pane whose folder is in it, not in a deeper worktree;
   // this space's first), else a new tab there in this space.
-  goTo(w) {
-    const r = this.repo;
-    const deepest = [...r.worktrees].sort((a, b) => slash(b.path).length - slash(a.path).length);
-    const owner = (cwd) => deepest.find((x) => inside(cwd, x.path));
+  goTo(w, r = this.repo, place = this.place) {
     const spaceOf = new Map(spaces().filter((s) => (s.machine ?? null) === r.machine).flatMap((s) => (s.tabs ?? []).map((t) => [t.id, s.id])));
     const hit = panes()
-      .filter((p) => spaceOf.has(p.tab) && owner(agentDir(p.terminal) ?? p.cwd ?? "") === w)
-      .sort((a, b) => Number(spaceOf.get(b.tab) === this.place?.space) - Number(spaceOf.get(a.tab) === this.place?.space))[0];
+      .filter((p) => spaceOf.has(p.tab) && same(ownerOf(r.worktrees, agentDir(p.terminal) ?? p.cwd)?.path, w.path))
+      .sort((a, b) => Number(spaceOf.get(b.tab) === place?.space) - Number(spaceOf.get(a.tab) === place?.space))[0];
     if (hit) run("tab.select", { id: hit.tab });
-    else run("tab.new", { space: this.place?.space, folder: w.path, name: w.branch ?? undefined });
+    else run("tab.new", { space: place?.space, folder: w.path, name: w.branch ?? undefined });
+  }
+
+  // Double-click on a branch: the main checkout switches to it, and you leave the
+  // worktree you're in for the main checkout. Not while an agent works there.
+  switchTo(branch, cx) {
+    const r = this.repo, place = this.place, main = r?.worktrees[0];
+    if (this.switching || !main) return;
+    this.switching = branch;
+    this.switchError = null;
+    cx.notify();
+    cx.spawn(async (cx) => {
+      let error = "";
+      try {
+        const busy = panesIn(main, r.worktrees, r.machine).some((p) => p.status === "working");
+        if (busy) error = `An agent is working in ${tilde(main.path)}; not switching under it.`;
+        else {
+          const s = await exec("git", ["switch", branch], { cwd: main.path, on: r.machine, timeout: 60000 });
+          if (s.code !== 0) error = gitError(s.stderr) || "git switch failed.";
+          else await this.leaveFor(main, r, place);
+        }
+      } catch (e) {
+        error = String(e?.message ?? e);
+      }
+      this.switching = null;
+      this.switchError = error || null;
+      this.check(cx, true);
+      cx.notify();
+    });
+  }
+
+  // Takes the pane you were in to worktree `w`: a shell at its prompt cds there; an
+  // agent or a running program can't move, so w's tab shows (or a new one there).
+  async leaveFor(w, r, place) {
+    const p = panes().find((x) => x.pane === place?.pane);
+    if (!p?.terminal) return this.goTo(w, r, place);
+    if (same(ownerOf(r.worktrees, agentDir(p.terminal) ?? p.cwd)?.path, w.path)) return;
+    // Single quotes read the same in PowerShell, sh, zsh and fish, but can't hold one.
+    if (p.program?.shell && !w.path.includes("'")) {
+      const sent = await hc(["send", p.terminal, `cd '${w.path}'`]);
+      if (sent.code === 0) return;
+    }
+    this.goTo(w, r, place);
   }
 
   // + in the Worktrees header: ask for the branch.
@@ -508,44 +558,68 @@ export default class GitSidebar extends View {
       .when(local, (el) => el.child(this.badge(t, "local", t.dim)));
   }
 
+  // A small square button with a Lucide glyph; `danger` turns it red on hover.
+  iconButton(t, id, glyph, tip, action, danger = false) {
+    return h_flex().id(id).size(22).flex_none().items_center().justify_center().rounded(6).text_color(t.dim)
+      .hover((s) => s.bg(t.hover).text_color(danger ? t.ansi1 : t.foreground))
+      .on_mouse_down("left", (_e, cx) => cx.stop_propagation())
+      .tooltip(tip)
+      .on_click((e, cx) => { cx.stop_propagation(); action(e, cx); })
+      .child(svg(icon(glyph)).size(13).flex_none());
+  }
+
+  // Header pills: the repo plain, the branch tinted with the accent, as git-graph's.
+  pill(t, glyph, text, color, bg) {
+    return h_flex().h(22).px(7).gap(5).min_w(0).items_center().rounded(6).bg(bg).text_color(color)
+      .child(svg(icon(glyph)).size(12).flex_none())
+      .child(div().min_w(0).truncate().text_size(11.5).font_semibold().child(text));
+  }
+
   worktreeRow(t, w, current, pr, i) {
     const hovered = this.hovered === `wt-${i}`;
-    return h_flex().id(`wt-${i}`).h(28).px(12).gap(7).items_center().cursor_pointer()
-      .when(current, (el) => el.bg(t.selected))
+    return h_flex().id(`wt-${i}`).h(30).px(12).gap(8).items_center().cursor_pointer()
+      .when(current, (el) => el.bg(t.accent + "14"))
       .hover((s) => s.bg(t.hover))
       .on_hover((on, cx) => { this.hovered = on ? `wt-${i}` : this.hovered === `wt-${i}` ? null : this.hovered; cx.notify(); })
       .on_click(() => this.goTo(w))
       .tooltip(current ? "You are here" : "Go to its tab, or open one here")
-      .child(svg("mods/workspace-chrome/branch.svg").size(12).flex_none().text_color(current ? t.accent : t.dim))
+      .child(svg(icon(current ? "check" : "folder")).size(12).flex_none().text_color(current ? t.accent : t.dim))
       .child(v_flex().flex_1().min_w(0)
-        .child(div().truncate().text_color(t.foreground).child(w.branch ?? "detached"))
+        .child(div().truncate().text_color(current ? t.accent : t.foreground).when(current, (el) => el.font_semibold()).child(w.branch ?? "detached"))
         .child(div().truncate().text_size(10.5).text_color(t.dim).child(tilde(w.path))))
       .when(w.main, (el) => el.child(this.badge(t, "main", t.dim)))
       .when(Boolean(pr), (el) => el.child(this.prBadge(t, pr, `wt-pr-${i}`)))
       // The main checkout can't be removed.
-      .when(hovered && !w.main, (el) => el.child(div().id(`wt-rm-${i}`).flex_none().px(5).rounded(4).text_color(t.dim)
-        .hover((s) => s.bg(t.hover).text_color(t.ansi1))
-        .tooltip("Remove this worktree…")
-        .on_click((_e, cx) => { cx.stop_propagation(); this.removeOne(w); })
-        .child("×")));
+      .when(hovered && !w.main, (el) => el.child(this.iconButton(t, `wt-rm-${i}`, "trash", "Remove this worktree…", () => this.removeOne(w), true)));
   }
 
   branchRow(t, b, pr, current, i) {
     const hovered = this.hovered === `br-${i}`;
-    return h_flex().id(`br-${i}`).h(24).px(12).gap(7).items_center()
+    const switching = this.switching === b.name;
+    return h_flex().id(`br-${i}`).h(26).px(12).gap(8).items_center().cursor_pointer()
+      .when(switching, (el) => el.bg(t.selected))
       .hover((s) => s.bg(t.hover))
       .on_hover((on, cx) => { this.hovered = on ? `br-${i}` : this.hovered === `br-${i}` ? null : this.hovered; cx.notify(); })
+      .on_click((e, cx) => { if (e.click_count === 2) this.switchTo(b.name, cx); })
+      .tooltip("Double-click: switch the main checkout to it and go there")
+      .child(switching
+        ? svg("mods/workspace-chrome/spinner.svg").size(12).flex_none().text_color(t.accent).spin(900)
+        : svg(icon("branch")).size(12).flex_none().text_color(t.dim))
       .child(div().flex_1().min_w(0).truncate().text_color(b.gone ? t.dim : current ? t.accent : t.foreground).child(b.name))
+      .when(switching, (el) => el.child(div().flex_none().text_size(10.5).text_color(t.dim).child("Switching…")))
       .when(b.gone, (el) => el.child(div().flex_none().text_size(10.5).text_color(t.dim).child("gone")))
       .when(b.ahead > 0, (el) => el.child(div().flex_none().text_color(t.ansi2).child(`↑${b.ahead}`)))
       .when(b.behind > 0, (el) => el.child(div().flex_none().text_color(t.ansi1).child(`↓${b.behind}`)))
       .when(Boolean(pr), (el) => el.child(this.prBadge(t, pr, `br-pr-${i}`)))
-      .when(hovered && !b.worktree, (el) => el.child(div().id(`br-wt-${i}`).flex_none().px(5).rounded(4).text_color(t.dim)
+      .when(hovered && !b.worktree && !switching, (el) => el.child(h_flex().id(`br-wt-${i}`).h(20).px(5).gap(3).flex_none().items_center().rounded(5)
+        .text_size(11).text_color(t.dim)
         .hover((s) => s.bg(t.hover).text_color(t.foreground))
+        .on_mouse_down("left", (_e, cx) => cx.stop_propagation())
         .tooltip("Check it out in a new worktree, as a tab here")
         .on_click((_e, cx) => { cx.stop_propagation(); this.worktreeFor(b.name, cx); })
-        .child("+ worktree")))
-      .when(!hovered || b.worktree, (el) => el.child(div().flex_none().w(26).text_size(10.5).text_color(t.dim).text_right().child(b.at ? ago(b.at) : "")));
+        .child(svg(icon("plus")).size(11).flex_none())
+        .child("worktree")))
+      .when((!hovered || b.worktree) && !switching, (el) => el.child(div().flex_none().w(26).text_size(10.5).text_color(t.dim).text_right().child(b.at ? ago(b.at) : "")));
   }
 
   render() {
@@ -553,17 +627,14 @@ export default class GitSidebar extends View {
     if (props()?.dialog === "worktree") return this.renderDialog(t);
     if (props()?.dialog === "cleanup") return this.renderCleanup(t);
     const r = this.repo;
-    const header = h_flex().h(42).flex_none().px(12).gap(8).items_center().border_b(1).border_color(t.border)
-      .child(svg("mods/workspace-chrome/branch.svg").size(14).flex_none().text_color(t.dim))
-      .child(div().flex_none().max_w(150).truncate().font_medium().text_color(t.foreground).child(r ? r.name : "Git"))
-      .when(Boolean(r?.branch), (el) => el.child(div().flex_1().min_w(0).truncate().text_color(t.dim).child(r.branch)))
-      .when(!r?.branch, (el) => el.child(div().flex_1()))
-      .child(div().id("git-refresh").flex_none().px(5).rounded(4).text_color(t.dim)
-        .hover((s) => s.bg(t.hover).text_color(t.foreground)).tooltip("Ask git and GitHub now")
-        .on_click((_e, cx) => this.check(cx, true)).child("↻"))
-      .child(div().id("git-close").flex_none().px(5).rounded(4).text_color(t.dim)
-        .hover((s) => s.bg(t.hover).text_color(t.foreground)).tooltip("Close (ctrl-a g)")
-        .on_click(() => run("layout.hide", { id: PANEL })).child("×"));
+    const header = h_flex().h(42).flex_none().px(12).gap(6).items_center().border_b(1).border_color(t.border)
+      .child(div().flex_none().mr(2).text_size(13).font_semibold().text_color(t.foreground).child("Git"))
+      // When it's tight the repo gives way first: the branch is what you came for.
+      .when(Boolean(r), (el) => el.child(this.pill(t, "folder", r.name, t.foreground, t.raised).flex_shrink(4).max_w(140)))
+      .when(Boolean(r?.branch), (el) => el.child(this.pill(t, "branch", r.branch, t.accent, t.accent + "26").flex_shrink(1)))
+      .child(div().flex_1())
+      .child(this.iconButton(t, "git-refresh", "refresh", "Ask git and GitHub now", (_e, cx) => this.check(cx, true)))
+      .child(this.iconButton(t, "git-close", "x", "Close (ctrl-a g)", () => run("layout.hide", { id: PANEL })));
 
     // Framed like the Files and Changes panels.
     const root = v_flex().id("git-sidebar").size_full().min_h(0).rounded(10).overflow_hidden()
@@ -581,7 +652,7 @@ export default class GitSidebar extends View {
       .map((p) => ({ p, local: localNames.has(p.headRefName) }))
       .sort((a, b) => Number(b.local) - Number(a.local) || b.p.number - a.p.number);
     const shownPrs = this.expanded.prs ? others : others.slice(0, SHORT.prs);
-    const here = [...r.worktrees].sort((a, b) => slash(b.path).length - slash(a.path).length).find((w) => inside(this.place.dir, w.path));
+    const here = ownerOf(r.worktrees, this.place.dir);
     const loose = r.branches.filter((b) => !b.worktree);
     const shownBranches = this.expanded.branches ? loose : loose.slice(0, SHORT.branches);
 
@@ -598,15 +669,16 @@ export default class GitSidebar extends View {
         .children(shownPrs.map(({ p, local }) => this.prRow(t, p, local)))
         .when(others.length > SHORT.prs, (el) => el.child(this.more(t, "prs", others.length - SHORT.prs))))
       .child(this.section(t, "Worktrees", r.worktrees.length, h_flex().gap(2).items_center()
-        .when(r.worktrees.length > 1, (el) => el.child(div().id("wt-clean").px(5).rounded(4).text_color(t.dim)
+        .when(r.worktrees.length > 1, (el) => el.child(h_flex().id("wt-clean").h(22).px(6).gap(4).items_center().rounded(6).text_color(t.dim)
           .hover((s) => s.bg(t.hover).text_color(t.foreground))
-          .tooltip("Remove worktrees whose branch is merged or gone…").on_click(() => this.cleanUp()).child("Clean up")))
-        .child(div().id("wt-new").px(5).rounded(4).text_color(t.dim).hover((s) => s.bg(t.hover).text_color(t.foreground))
-          .tooltip("New worktree, as a tab here").on_click(() => this.newWorktree()).child("+"))))
+          .tooltip("Remove worktrees whose branch is merged or gone…").on_click(() => this.cleanUp())
+          .child(svg(icon("trash")).size(11).flex_none()).child("Clean up")))
+        .child(this.iconButton(t, "wt-new", "plus", "New worktree, as a tab here", () => this.newWorktree()))))
       .when(Boolean(this.adding), (el) => el.child(this.note(t, `Checking out ${this.adding}…`)))
       .when(Boolean(this.addError), (el) => el.child(this.note(t, this.addError, t.ansi1)))
       .children(r.worktrees.map((w, i) => this.worktreeRow(t, w, w === here, w.branch ? byBranch.get(w.branch) : null, i)))
-      .child(this.section(t, "Branches", loose.length))
+      .child(this.section(t, "Branches", loose.length, loose.length > 0 ? div().font_normal().child("double-click to switch") : null))
+      .when(Boolean(this.switchError), (el) => el.child(this.note(t, this.switchError, t.ansi1)))
       .when(loose.length === 0, (el) => el.child(this.note(t, "Every branch is in a worktree.")))
       .children(shownBranches.map((b, i) => this.branchRow(t, b, byBranch.get(b.name), b.name === r.branch, i)))
       .when(loose.length > SHORT.branches, (el) => el.child(this.more(t, "branches", loose.length - SHORT.branches)));

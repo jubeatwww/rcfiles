@@ -1,3 +1,7 @@
 zsh/local.zsh
 .zcompdump*
 tools/*/target/
+# Written into each mod folder by herdr-app on start
+config/herdr-app/**/gpui-kit.d.ts
+config/herdr-app/**/herdr.d.ts
+config/herdr-app/**/jsconfig.json

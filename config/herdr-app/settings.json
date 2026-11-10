@@ -5,7 +5,8 @@
   },
   "font_ligatures": false,
   "ui_font": "Comic Sans MS",
-  "minimum_contrast": 1.0,
+  "minimum_contrast": 1,
   "appearance": "dark",
-  "theme": "atom-one-dark"
+  "theme": "atom-one-dark",
+  "font_size": 12
 }

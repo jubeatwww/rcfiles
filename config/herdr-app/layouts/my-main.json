@@ -153,10 +153,41 @@
                     },
                     {
                       "id": "git",
-                      "type": "block",
-                      "content": {
-                        "mod": "git-sidebar"
-                      }
+                      "type": "column",
+                      "gap": 6,
+                      "children": [
+                        {
+                          "id": "git-views",
+                          "type": "block",
+                          "size": {
+                            "px": 30
+                          },
+                          "content": {
+                            "mod": "git-views"
+                          }
+                        },
+                        {
+                          "id": "git-body",
+                          "type": "stack",
+                          "active": "git-overview",
+                          "children": [
+                            {
+                              "id": "git-overview",
+                              "type": "block",
+                              "content": {
+                                "mod": "git-sidebar"
+                              }
+                            },
+                            {
+                              "id": "git-graph",
+                              "type": "block",
+                              "content": {
+                                "mod": "git-graph"
+                              }
+                            }
+                          ]
+                        }
+                      ]
                     }
                   ],
                   "active": "files"
